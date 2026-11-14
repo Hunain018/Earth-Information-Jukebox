@@ -22,6 +22,9 @@ interface CanvasStageProps {
   customImageName: string | null;
 }
 
+// ✅ FIX 1: Tab panel ka ID — tab buttons isko aria-controls se reference karenge
+const PANEL_ID = 'eic-visual-panel';
+
 export function CanvasStage({
   tracks,
   activeTrack,
@@ -74,6 +77,9 @@ export function CanvasStage({
               role="tab"
               type="button"
               aria-selected={active}
+              // ✅ FIX 1: aria-controls se tab panel se linked — WCAG 4.1.2
+              aria-controls={PANEL_ID}
+              id={`tab-${track.id}`}
               onClick={() => onSelectTrack(track)}
               className={`px-3.5 py-2 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-cyan-400 ${
                 active
@@ -81,8 +87,9 @@ export function CanvasStage({
                   : 'text-slate-400 border border-transparent hover:text-slate-100 hover:bg-slate-800/50'
               }`}
             >
+              {/* ✅ FIX 4: padStart se "01." "10." — index size-safe */}
               <span className="font-mono text-slate-500 mr-1.5 tabular-nums">
-                0{track.index}.
+                {String(track.index).padStart(2, '0')}.
               </span>
               {track.title}
             </button>
@@ -111,7 +118,7 @@ export function CanvasStage({
 
         <div className="flex items-center gap-5 shrink-0">
           {/* Primary Metric Readout */}
-          <div className="text-right">
+          <div className="text-right" aria-live="polite" aria-atomic="true">
             <div className="text-[11px] uppercase tracking-wider text-slate-400 hc-muted">
               {activeTrack.metricLabel}
             </div>
@@ -129,6 +136,7 @@ export function CanvasStage({
 
           <button
             type="button"
+            aria-label={isPlaying ? 'Pause sonification' : 'Play sonification'}
             onClick={onTogglePlay}
             className={`inline-flex items-center gap-2.5 rounded-md px-5 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 ${
               isPlaying
@@ -141,29 +149,42 @@ export function CanvasStage({
             ) : (
               <Play className="h-4 w-4 fill-current" aria-hidden="true" />
             )}
-            <span>{isPlaying ? 'Pause Audio' : 'Play Sonification'}</span>
+            <span aria-hidden="true">{isPlaying ? 'Pause Audio' : 'Play Sonification'}</span>
           </button>
         </div>
       </div>
 
-      {/* Visual Canvas Viewport */}
-      <div className="p-6 flex-1 flex flex-col gap-4">
+      {/* ✅ FIX 1: role="tabpanel" aur aria-labelledby — tab panel properly declared */}
+      <div
+        id={PANEL_ID}
+        role="tabpanel"
+        aria-labelledby={`tab-${activeTrack.id}`}
+        className="p-6 flex-1 flex flex-col gap-4"
+      >
+        {/* Visual Canvas Viewport */}
         <div
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
+          aria-label="Visual frame viewport. Drag and drop an image here to load a custom frame."
           className="relative rounded-md border border-slate-800 bg-[#05070C] overflow-hidden hc-panel"
         >
           {/* Top-left coordinate HUD */}
-          <div className="pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-3 rounded bg-[#07090E]/85 border border-slate-800 px-2.5 py-1 text-[11px] font-mono text-slate-200 tabular-nums">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-3 rounded bg-[#07090E]/85 border border-slate-800 px-2.5 py-1 text-[11px] font-mono text-slate-200 tabular-nums"
+          >
             <span>{telemetry.regionLabel}</span>
-            <span aria-hidden="true" className="text-slate-600">|</span>
+            <span className="text-slate-600">|</span>
             <span className="text-cyan-300">{telemetry.activePitchHz.toFixed(1)} Hz</span>
-            <span aria-hidden="true" className="text-slate-600">|</span>
+            <span className="text-slate-600">|</span>
             <span className="text-amber-300">{telemetry.activeNoteName}</span>
           </div>
 
           {/* Top-right RGB CV channels */}
-          <div className="pointer-events-none absolute top-3 right-3 z-10 hidden sm:flex items-center gap-3 rounded bg-[#07090E]/85 border border-slate-800 px-2.5 py-1 text-[11px] font-mono tabular-nums">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute top-3 right-3 z-10 hidden sm:flex items-center gap-3 rounded bg-[#07090E]/85 border border-slate-800 px-2.5 py-1 text-[11px] font-mono tabular-nums"
+          >
             <span className="text-rose-400">R {Math.round(telemetry.red * 255)}</span>
             <span className="text-emerald-400">G {Math.round(telemetry.green * 255)}</span>
             <span className="text-sky-400">B {Math.round(telemetry.blue * 255)}</span>
@@ -185,7 +206,11 @@ export function CanvasStage({
               const { nx, ny } = getNormalizedCoords(e);
               onCanvasPointerMove(nx, ny);
             }}
-            onPointerUp={() => onCanvasPointerUp()}
+            onPointerUp={(e) => {
+              // ✅ FIX 3: pointer capture explicitly release karo
+              e.currentTarget.releasePointerCapture(e.pointerId);
+              onCanvasPointerUp();
+            }}
             className="w-full aspect-[920/440] block cursor-crosshair focus-visible:outline-2 focus-visible:outline-cyan-400"
           />
 
@@ -198,6 +223,7 @@ export function CanvasStage({
                   : 'Drop an image onto the viewport or upload a NASA EIC frame.'}
               </span>
               <div className="flex items-center gap-2">
+                {/* ✅ FIX 2: value reset kiya — same file dobara select ho sake */}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -205,11 +231,15 @@ export function CanvasStage({
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
-                    if (file) onUploadCustomImage(file);
+                    if (file) {
+                      onUploadCustomImage(file);
+                      e.target.value = ''; // ✅ reset so same file re-selectable hoti hai
+                    }
                   }}
                 />
                 <button
                   type="button"
+                  aria-label="Upload a custom image frame for sonification"
                   onClick={() => fileInputRef.current?.click()}
                   className="inline-flex items-center gap-1.5 rounded border border-cyan-500/50 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-300 hover:bg-cyan-500/20 focus-visible:outline-2 focus-visible:outline-cyan-400"
                 >
@@ -228,13 +258,17 @@ export function CanvasStage({
             <div className="flex items-center gap-2 shrink-0">
               <Calendar className="h-4 w-4 text-cyan-400" aria-hidden="true" />
               <span className="text-xs font-medium text-slate-300">Observation Year</span>
-              <span className="text-sm font-mono font-semibold text-slate-50 tabular-nums ml-1">
+              <span
+                className="text-sm font-mono font-semibold text-slate-50 tabular-nums ml-1"
+                aria-hidden="true"
+              >
                 {year}
               </span>
             </div>
 
             <input
               aria-label="Observation year timeline scrubber"
+              aria-valuetext={`Year ${year}`}
               type="range"
               min={activeTrack.yearMin}
               max={activeTrack.yearMax}
@@ -250,6 +284,7 @@ export function CanvasStage({
                 type="button"
                 disabled={activeTrack.yearMin === activeTrack.yearMax}
                 aria-pressed={isTimeLapsing}
+                aria-label={isTimeLapsing ? 'Stop time-lapse animation' : 'Start time-lapse animation through years'}
                 onClick={onToggleTimeLapse}
                 className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors whitespace-nowrap disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-cyan-400 ${
                   isTimeLapsing
@@ -257,11 +292,13 @@ export function CanvasStage({
                     : 'bg-[#07090E] border-slate-700 text-slate-300 hover:border-slate-500'
                 }`}
               >
-                {isTimeLapsing ? 'Stop Time-Lapse' : 'Animate Years'}
+                <span aria-hidden="true">
+                  {isTimeLapsing ? 'Stop Time-Lapse' : 'Animate Years'}
+                </span>
               </button>
               <button
                 type="button"
-                aria-label="Reset year to default"
+                aria-label={`Reset to default year ${activeTrack.defaultYear}`}
                 onClick={() => onChangeYear(activeTrack.defaultYear)}
                 className="p-1.5 rounded border border-slate-800 bg-[#07090E] text-slate-400 hover:text-slate-100 focus-visible:outline-2 focus-visible:outline-cyan-400"
               >
@@ -271,7 +308,10 @@ export function CanvasStage({
           </div>
 
           {/* Calibrated Pseudocolor Legend */}
-          <div className="lg:col-span-5 rounded-md border border-slate-800 bg-[#0B0F19] hc-panel px-4 py-3">
+          <div
+            className="lg:col-span-5 rounded-md border border-slate-800 bg-[#0B0F19] hc-panel px-4 py-3"
+            aria-label={`Color scale: ${activeTrack.legendMinLabel} to ${activeTrack.legendMaxLabel}`}
+          >
             <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 mb-1.5 tabular-nums">
               <span>{activeTrack.legendMinLabel}</span>
               <span className="text-slate-300 font-sans">
