@@ -1,0 +1,6 @@
+{
+  "name": "Earth Information Jukebox",
+  "description": "Interactive NASA Earth Information Center visual-to-audio sonification instrument translating planetary data frames into real-time harmonic soundscapes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
