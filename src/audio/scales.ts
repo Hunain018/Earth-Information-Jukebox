@@ -42,17 +42,31 @@ export const ROOT_MIDI_MAP: Record<RootNote, number> = {
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 
+/** MIDI number ko Hz frequency mein convert karta hai (A4 = 440 Hz = MIDI 69) */
 export function midiToFrequency(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
+/**
+ * MIDI number ko readable note name mein convert karta hai.
+ * Float MIDI values ko nearest integer par round karta hai.
+ * Valid range: 0–127 (C-1 to G9). Is range se bahar defensive clamp lagta hai.
+ */
 export function midiToNoteName(midi: number): string {
-  const rounded = Math.round(midi);
+  const rounded = Math.round(Math.max(0, Math.min(127, midi))); // ✅ defensive clamp
   const note = NOTE_NAMES[((rounded % 12) + 12) % 12];
   const octave = Math.floor(rounded / 12) - 1;
   return `${note}${octave}`;
 }
 
+/**
+ * Normalized value (0–1) ko selected musical scale ke ek note par quantize karta hai.
+ * @param normalizedValue  - 0.0 (lowest) se 1.0 (highest) tak input
+ * @param scaleId          - Musical scale jisse quantize karna hai
+ * @param rootNote         - Root key (C, D, Eb, F, G, A)
+ * @param octaveOffset     - Base octave se kitne octave upar shuru ho (default 0)
+ * @param octaveSpan       - Kitne octaves cover karne hain (default 2)
+ */
 export function quantizeToScale(
   normalizedValue: number,
   scaleId: MusicalScaleId,
@@ -64,6 +78,7 @@ export function quantizeToScale(
   const baseMidi = ROOT_MIDI_MAP[rootNote] + octaveOffset * 12;
 
   if (scaleId === 'continuous') {
+    // Microtonal: seedha linear interpolation, koi quantization nahi
     const midi = baseMidi + clamped * octaveSpan * 12;
     return {
       hz: midiToFrequency(midi),
@@ -74,6 +89,7 @@ export function quantizeToScale(
 
   const intervals = SCALE_DEFINITIONS[scaleId].intervals;
   const totalSteps = intervals.length * octaveSpan;
+  // clamped=1.0 par bhi last step se bahar na jaye
   const stepIndex = Math.min(totalSteps - 1, Math.floor(clamped * totalSteps));
   const octave = Math.floor(stepIndex / intervals.length);
   const interval = intervals[stepIndex % intervals.length];
