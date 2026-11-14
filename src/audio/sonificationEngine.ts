@@ -19,13 +19,7 @@ function createPinkNoiseBuffer(ctx: BaseAudioContext, seconds = 3): AudioBuffer 
   const length = Math.floor(rate * seconds);
   const buffer = ctx.createBuffer(1, length, rate);
   const output = buffer.getChannelData(0);
-  let b0 = 0;
-  let b1 = 0;
-  let b2 = 0;
-  let b3 = 0;
-  let b4 = 0;
-  let b5 = 0;
-  let b6 = 0;
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
   for (let i = 0; i < length; i++) {
     const white = Math.random() * 2 - 1;
     b0 = 0.99886 * b0 + white * 0.0555179;
@@ -47,20 +41,20 @@ export class EarthSonificationEngine {
   private dryBus: GainNode | null = null;
   private wetBus: GainNode | null = null;
 
-  // Thermal layer (dual detuned pad + lowpass + panner)
+  // Thermal layer
   private thermalOscA: OscillatorNode | null = null;
   private thermalOscB: OscillatorNode | null = null;
   private thermalFilter: BiquadFilterNode | null = null;
   private thermalGain: GainNode | null = null;
   private thermalPan: StereoPannerNode | null = null;
 
-  // Kinetic layer (pink noise through dynamic bandpass)
+  // Kinetic layer
   private kineticSource: AudioBufferSourceNode | null = null;
   private kineticFilter: BiquadFilterNode | null = null;
   private kineticGain: GainNode | null = null;
   private kineticPan: StereoPannerNode | null = null;
 
-  // Baseline layer (sub-bass root + fifth)
+  // Baseline layer
   private baseOscRoot: OscillatorNode | null = null;
   private baseOscFifth: OscillatorNode | null = null;
   private baseGain: GainNode | null = null;
@@ -122,7 +116,6 @@ export class EarthSonificationEngine {
     this.dryBus.connect(compressor);
     this.wetBus.connect(convolver);
     convolver.connect(compressor);
-
     compressor.connect(this.masterGain);
     this.masterGain.connect(this.analyser);
     this.analyser.connect(ctx.destination);
@@ -227,7 +220,7 @@ export class EarthSonificationEngine {
 
     this.masterGain.gain.setTargetAtTime(settings.masterVolume * 0.85, now, 0.08);
 
-    // 1. Update Thermal Harmonic Pad
+    // 1. Thermal Harmonic Pad
     const thermalMix = this.getEffectiveLayerGain('thermal', settings);
     if (this.thermalOscA && this.thermalOscB && this.thermalFilter && this.thermalGain && this.thermalPan) {
       this.thermalOscA.frequency.setTargetAtTime(telemetry.activePitchHz, now, 0.06);
@@ -238,7 +231,7 @@ export class EarthSonificationEngine {
       this.thermalGain.gain.setTargetAtTime(padLevel, now, 0.08);
     }
 
-    // 2. Update Kinetic Atmospheric Texture
+    // 2. Kinetic Atmospheric Texture
     const kineticMix = this.getEffectiveLayerGain('kinetic', settings);
     if (this.kineticFilter && this.kineticGain && this.kineticPan) {
       const centerFreq = 320 + telemetry.edgeDensity * 2400;
@@ -248,10 +241,10 @@ export class EarthSonificationEngine {
       this.kineticGain.gain.setTargetAtTime(noiseLevel, now, 0.08);
     }
 
-    // 3. Update Planetary Sub-Bass Drone
+    // 3. Planetary Sub-Bass Drone
     const baseMix = this.getEffectiveLayerGain('baseline', settings);
     if (this.baseOscRoot && this.baseOscFifth && this.baseGain) {
-      const rootMidi = ROOT_MIDI_MAP[settings.rootNote] - 12; // Octave 2
+      const rootMidi = ROOT_MIDI_MAP[settings.rootNote] - 12;
       const rootHz = midiToFrequency(rootMidi);
       const fifthHz = midiToFrequency(rootMidi + 7);
       this.baseOscRoot.frequency.setTargetAtTime(rootHz, now, 0.12);
@@ -260,11 +253,15 @@ export class EarthSonificationEngine {
       this.baseGain.gain.setTargetAtTime(droneLevel, now, 0.1);
     }
 
-    // 4. Trigger Cryo & Hydro Crystalline Chime on beat grid
+    // 4. Cryo & Hydro Crystalline Chime — beat grid trigger
     const hydroMix = this.getEffectiveLayerGain('hydro', settings);
-    const beatInterval = 60 / Math.max(40, settings.tempoBpm) / 2; // eighth-note cadence
+    const beatInterval = 60 / Math.max(40, settings.tempoBpm) / 2;
     if (hydroMix > 0.02 && now - this.lastChimeTime >= beatInterval) {
-      const hydroEnergy = Math.max(telemetry.blue, telemetry.edgeDensity * 0.85, telemetry.luminance * 0.65);
+      const hydroEnergy = Math.max(
+        telemetry.blue,
+        telemetry.edgeDensity * 0.85,
+        telemetry.luminance * 0.65
+      );
       if (hydroEnergy > 0.18) {
         this.triggerHydroChime(telemetry, settings, hydroMix, now);
       }
@@ -425,30 +422,61 @@ export class EarthSonificationEngine {
       noiseFilter.frequency.setTargetAtTime(320 + tel.edgeDensity * 2400, t, 0.04);
       noiseGain.gain.setTargetAtTime(kineticMix * (0.04 + tel.edgeDensity * 0.45), t, 0.04);
 
+      // ✅ FIX 1 & 2: hydroEnergy threshold check add kiya — live engine se match karta hai
+      //    aur FM modulator bhi add kiya taake WAV aur live sound same rahe
       if (hydroMix > 0.02 && t >= nextBeat) {
-        const noteVal = Math.min(1, Math.max(0, tel.blue * 0.65 + tel.edgeDensity * 0.35));
-        const q = quantizeToScale(noteVal, settings.scale, settings.rootNote, 1, 2);
-        const chime = offline.createOscillator();
-        chime.type = 'sine';
-        chime.frequency.setValueAtTime(q.hz, t);
-        const env = offline.createGain();
-        const peak = Math.min(0.24, hydroMix * (0.08 + tel.blue * 0.18));
-        env.gain.setValueAtTime(0.0001, t);
-        env.gain.linearRampToValueAtTime(peak, t + 0.015);
-        env.gain.exponentialRampToValueAtTime(0.0001, Math.min(durationSeconds, t + 0.6));
-        const pan = offline.createStereoPanner();
-        pan.pan.setValueAtTime(tel.stereoPan * 0.85, t);
-        chime.connect(env);
-        env.connect(pan);
-        pan.connect(dry);
-        pan.connect(wet);
-        chime.start(t);
-        chime.stop(Math.min(durationSeconds, t + 0.65));
+        const hydroEnergy = Math.max(
+          tel.blue,
+          tel.edgeDensity * 0.85,
+          tel.luminance * 0.65
+        );
+        if (hydroEnergy > 0.18) {
+          const noteVal = Math.min(1, Math.max(0, tel.blue * 0.65 + tel.edgeDensity * 0.35));
+          const q = quantizeToScale(noteVal, settings.scale, settings.rootNote, 1, 2);
+
+          // FM carrier (live engine jaisa)
+          const carrier = offline.createOscillator();
+          carrier.type = 'sine';
+          carrier.frequency.setValueAtTime(q.hz, t);
+
+          // FM modulator — ✅ pehle ye missing tha, sirf plain sine tha
+          const modulator = offline.createOscillator();
+          modulator.type = 'triangle';
+          modulator.frequency.setValueAtTime(q.hz * 2, t);
+
+          const modGain = offline.createGain();
+          modGain.gain.setValueAtTime(q.hz * 0.35, t);
+          modGain.gain.exponentialRampToValueAtTime(1, t + 0.35);
+
+          const env = offline.createGain();
+          const peak = Math.min(0.24, hydroMix * (0.08 + tel.blue * 0.18));
+          env.gain.setValueAtTime(0.0001, t);
+          env.gain.linearRampToValueAtTime(peak, t + 0.015);
+          env.gain.exponentialRampToValueAtTime(
+            0.0001,
+            Math.min(durationSeconds, t + 0.6)
+          );
+
+          const pan = offline.createStereoPanner();
+          pan.pan.setValueAtTime(tel.stereoPan * 0.85, t);
+
+          modulator.connect(modGain);
+          modGain.connect(carrier.frequency);
+          carrier.connect(env);
+          env.connect(pan);
+          pan.connect(dry);
+          pan.connect(wet);
+
+          carrier.start(t);
+          modulator.start(t);
+          carrier.stop(Math.min(durationSeconds, t + 0.7));
+          modulator.stop(Math.min(durationSeconds, t + 0.7));
+        }
         nextBeat += beatInterval;
       }
     }
 
-    // Fade out last 0.2s cleanly
+    // Fade out
     master.gain.setValueAtTime(settings.masterVolume * 0.85, Math.max(0, durationSeconds - 0.25));
     master.gain.linearRampToValueAtTime(0.0001, durationSeconds);
 
@@ -456,11 +484,29 @@ export class EarthSonificationEngine {
     return audioBufferToWavBlob(rendered);
   }
 
+  // ✅ FIX 3: dispose() mein sab node references null kar diye — memory leak prevent
   public dispose(): void {
     if (this.ctx) {
       void this.ctx.close();
       this.ctx = null;
     }
+    this.analyser = null;
+    this.masterGain = null;
+    this.dryBus = null;
+    this.wetBus = null;
+    this.thermalOscA = null;
+    this.thermalOscB = null;
+    this.thermalFilter = null;
+    this.thermalGain = null;
+    this.thermalPan = null;
+    this.kineticSource = null;
+    this.kineticFilter = null;
+    this.kineticGain = null;
+    this.kineticPan = null;
+    this.baseOscRoot = null;
+    this.baseOscFifth = null;
+    this.baseGain = null;
+    this.isStarted = false;
   }
 }
 
@@ -492,7 +538,7 @@ function audioBufferToWavBlob(buffer: AudioBuffer): Blob {
   view.setUint32(40, buffer.length * numChannels * 2, true);
 
   let offset = 44;
-  const channels = [];
+  const channels: Float32Array[] = [];
   for (let i = 0; i < numChannels; i++) {
     channels.push(buffer.getChannelData(i));
   }
